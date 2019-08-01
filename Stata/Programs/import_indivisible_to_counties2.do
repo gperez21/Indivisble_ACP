@@ -22,6 +22,7 @@ drop if FIPS == ""
 tempfile county_classify
 save `county_classify'
 
+* import county population
 import delimited "$Data\co-est2018-alldata.csv", varnames(1) clear
 tostring state county, replace
 replace state = "0"+ state if length(state) == 1
@@ -31,6 +32,24 @@ gen FIPS = state+county
 tempfile county_pop
 save `county_pop'
 
+* import 2016 results by county
+import delimited "$Data\countypres_2000-2016.csv", clear stringcols(5)
+keep if year == 2016
+keep if office == "President"
+replace fips = "0"*(5-length(fips))+fips
+ren fips FIPS
+destring candidatevotes, replace force
+keep candidatevote FIPS state state_po county party
+reshape wide candidatevote, i(FIPS state state_po county) j(party) string
+ren candidatevotesdemocrat votes_dem
+ren candidatevotesrep votes_gop
+gen total_votes = candidatevotesNA + votes_dem + votes_gop
+drop candidatevotesNA
+drop if FIPS == "000NA"
+tempfile county_2016
+save `county_2016'
+
+* import indivisible events
 import delimited "$Electoral_data\indivisible_events.csv", varnames(1) clear
 tostring zipcode, replace
 replace zipcode = "0"*(5-length(zipcode))+zipcode if zipcode != "."
@@ -77,6 +96,9 @@ gen _X = y
 * Spatial join using geoinpoly points to polygons
 geoinpoly _Y _X using "$Data\county_coor.dta"
 
+* Export events
+export delimited using "$Data\events_xy_output.csv", replace
+
 * merge the matched polygons with the database and get attributes
 merge m:1 _ID using "$Data\county_data.dta", keep(master match) 
 keep if _m == 3
@@ -87,53 +109,23 @@ drop _m
 
 gen counter = 1 if event != ""
 collapse (sum) counter, by(FIPS Type)
+destring Type, replace
 
 merge m:1 FIPS using `county_pop', keepus(pop)
 keep if _m == 3
 drop _m
 
-collapse (sum) pop counter, by(Type)
-
-/*
-* events per district
-gen counter = 1
-collapse (sum) counter, by(_ID STATEFP)
-ren counter indivisible_groups
-save "$Data\Events_in_dist", replace
-
-// drop if STATEFP == "02" | STATEFP == "15"
-// * Make PA map
-// spmap counter using "$Data\Districts_coor.dta" , id(_ID) fcolor(Reds) ///
-// legend(symy(*2) symx(*2) size(*2) position (4)) 
-
-
-
-use "$Data/dollar_master_clean", clear
-merge m:1 _ID using "$Data\Events_in_dist"
+merge m:1 FIPS using `county_2016', keepus(*votes* state county)
+replace votes_dem = 0 if _n < 96 & _n > 68
+replace votes_gop = 0 if _n < 96 & _n > 68
+replace total_votes = 0 if _n < 96 & _n > 68
 keep if _m == 3
+drop _m
 
-// graph of
-keep if dis == "TX-04" | dis == "TX-05" | dis == "TX-08" | dis == "TX-11" ///
-| dis == "TX-13" | dis == "TX-19" | dis == "TX-36" | dis == "GA-01" ///
-| dis == "GA-09" | dis == "GA-10" | dis == "GA-14" | dis == "OK-01" ///
-| dis == "AL-01" | dis == "AL-04" | dis == "AZ-08" | dis == "IL-15" ///
-| dis == "IL-16" | dis == "KY-02" | dis == "KY-05" | dis == "KS-01"
 
-sort Nu
-graph bar Nu, over(dis)
-
-TX-4, TX-5, TX-8, TX-11, TX-13, TX-19, TX-36, GA-1, GA-9, GA-10, GA-14, OK-1, AL-1, AL-4, AZ-8, IL-15, IL-16, KY-2, KY-5 & KS-1
-twoway scatter indivi Num, ///
-msize(vsmall) ///
-mcolor(lavender%50) ///
-mstyle(o) ///
-graphregion(color(white)) ///
-ylab(,nogrid) ///
-ytitle("Indivisible Groups")
-
-collapse (median) indivi, by(bin)
-graph dot indi, over(bin) vertical
-
+collapse (sum) pop counter *vote*, by(Type)
+gen pct_trump = votes_gop/total_votes
+// drop *votes*
 
 
 
