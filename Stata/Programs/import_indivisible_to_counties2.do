@@ -122,6 +122,22 @@ replace total_votes = 0 if _n < 96 & _n > 68
 keep if _m == 3
 drop _m
 
+* mark who won
+gen w2016 = "D" if votes_dem > votes_gop
+replace w2016 = "R" if votes_dem < votes_gop
+save "$Data\indivisible_in_counties", replace
+
+* christmas tree plot
+gen per_100k = 100000*counter/pop
+sort TypeNumber per_100k
+replace TypeNumber = TypeNumber - .13 if w2016 == "D"
+replace TypeNumber = TypeNumber + .13 if w2016 == "R"
+twoway ///
+(scatter per_100k TypeNumber if w2016 == "R", ///
+msize(med) mcolor(cranberry%10)) ///
+(scatter per_100k TypeNumber if w2016 == "D", ///
+msize(med) mcolor(blue%10))
+
 
 collapse (sum) pop counter *vote*, by(Type)
 gen pct_trump = votes_gop/total_votes
